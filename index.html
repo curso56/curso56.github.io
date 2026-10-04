@@ -1095,12 +1095,15 @@ function verDistribucion(){
   const gastosDivisibles=_cuentasData.filter(g=>g.rubro!=='Ahorro');
   const cuotas=calcularCuotas(presentes);
 
-  // Calcular saldo neto de cada familia (positivo = le deben, negativo = debe)
+  // Calcular saldo neto de cada familia redondeado a $100
+  // Usar cuota exacta (no redondeada) para mayor precisión en el saldo
   var saldos=presentes.map(function(f){
     var pagado=gastosDivisibles.filter(g=>g.fid==f.id).reduce((s,g)=>s+g.monto,0);
-    var cuota=cuotas.redondeada[f.id]||0;
-    return {id:f.id,apellido:f.apellido,saldo:pagado-cuota};
-  }).filter(function(f){return Math.abs(f.saldo)>=50;}); // ignorar diferencias menores a $50
+    var cuota=cuotas.exacta[f.id]||0;
+    var saldoExacto=pagado-cuota;
+    var saldoRed=Math.round(saldoExacto/100)*100; // redondear saldo a $100
+    return {id:f.id,apellido:f.apellido,saldo:saldoRed};
+  }).filter(function(f){return Math.abs(f.saldo)>=50;});
 
   // Separar acreedores (saldo>0) y deudores (saldo<0)
   var acreedores=saldos.filter(f=>f.saldo>0).sort((a,b)=>b.saldo-a.saldo);
@@ -1111,8 +1114,7 @@ function verDistribucion(){
     return;
   }
 
-  // Algoritmo greedy: el deudor más grande le paga al acreedor más grande
-  // Bug fix: trabajar con saldos exactos internamente, redondear solo al mostrar
+  // Algoritmo greedy: trabajar con saldos ya redondeados
   var transferencias=[];
   var saldoAcr=acreedores.map(a=>Object.assign({},a));
   var saldoDeu=deudores.map(d=>Object.assign({},d));
@@ -1120,14 +1122,12 @@ function verDistribucion(){
   while(ia<saldoAcr.length&&id<saldoDeu.length){
     var acr=saldoAcr[ia];
     var deu=saldoDeu[id];
-    var montoExacto=Math.min(acr.saldo,Math.abs(deu.saldo));
-    var montoMostrar=Math.round(montoExacto/100)*100; // redondear a $100 solo para mostrar
-    if(montoMostrar>=50){
-      transferencias.push({de:deu.apellido,a:acr.apellido,monto:montoMostrar});
+    var monto=Math.min(acr.saldo,Math.abs(deu.saldo));
+    if(monto>=50){
+      transferencias.push({de:deu.apellido,a:acr.apellido,monto:monto});
     }
-    // Descontar el monto exacto (no el redondeado) para no acumular errores
-    acr.saldo-=montoExacto;
-    deu.saldo+=montoExacto;
+    acr.saldo-=monto;
+    deu.saldo+=monto;
     if(Math.abs(acr.saldo)<50)ia++;
     if(Math.abs(deu.saldo)<50)id++;
   }
