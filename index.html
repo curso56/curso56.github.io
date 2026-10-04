@@ -1089,7 +1089,9 @@ function verDistribucion(){
   const r=state.reuniones.find(x=>x.id===_cuentasRid);
   if(!r)return;
   const asist=r.asistencia||{};
-  const presentes=state.familias.filter(f=>asist[f.id]===true);
+  // Bug fix: incluir Méndez si están presentes (igual que en renderCuentas)
+  var presentes=state.familias.filter(f=>asist[f.id]===true);
+  if(_mendezPresentes) presentes=presentes.concat([MENDEZ_FAMILIA]);
   const gastosDivisibles=_cuentasData.filter(g=>g.rubro!=='Ahorro');
   const cuotas=calcularCuotas(presentes);
 
@@ -1110,6 +1112,7 @@ function verDistribucion(){
   }
 
   // Algoritmo greedy: el deudor más grande le paga al acreedor más grande
+  // Bug fix: trabajar con saldos exactos internamente, redondear solo al mostrar
   var transferencias=[];
   var saldoAcr=acreedores.map(a=>Object.assign({},a));
   var saldoDeu=deudores.map(d=>Object.assign({},d));
@@ -1117,13 +1120,14 @@ function verDistribucion(){
   while(ia<saldoAcr.length&&id<saldoDeu.length){
     var acr=saldoAcr[ia];
     var deu=saldoDeu[id];
-    var monto=Math.min(acr.saldo,Math.abs(deu.saldo));
-    monto=Math.round(monto/100)*100; // redondear a $100
-    if(monto>=50){
-      transferencias.push({de:deu.apellido,a:acr.apellido,monto:monto});
+    var montoExacto=Math.min(acr.saldo,Math.abs(deu.saldo));
+    var montoMostrar=Math.round(montoExacto/100)*100; // redondear a $100 solo para mostrar
+    if(montoMostrar>=50){
+      transferencias.push({de:deu.apellido,a:acr.apellido,monto:montoMostrar});
     }
-    acr.saldo-=monto;
-    deu.saldo+=monto;
+    // Descontar el monto exacto (no el redondeado) para no acumular errores
+    acr.saldo-=montoExacto;
+    deu.saldo+=montoExacto;
     if(Math.abs(acr.saldo)<50)ia++;
     if(Math.abs(deu.saldo)<50)id++;
   }
