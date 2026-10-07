@@ -276,6 +276,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div style="font-size:11px;font-weight:500;color:rgba(255,255,255,0.7);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:12px">Esta semana conquistamos...</div>
       <div id="conquista-semana-body" style="font-size:13px;color:rgba(255,255,255,0.7)">Cargando...</div>
     </div>
+
+    <!-- REZO CRUZADO -->
+    <div class="card" id="rezo-cruzado-card" style="margin-bottom:12px">
+      <div class="card-title" style="justify-content:space-between">
+        <span><i class="ti ti-rosette" style="color:var(--purple)"></i> Rezo cruzado</span>
+        <span id="rezo-semana-label" style="font-size:11px;color:var(--text-secondary)"></span>
+      </div>
+      <div id="rezo-body"><div style="font-size:12px;color:var(--text-secondary);text-align:center;padding:8px 0">Cargando...</div></div>
+      <div id="rezo-admin-zone" style="margin-top:12px;padding-top:12px;border-top:0.5px solid var(--border)">
+        <button id="rezo-sortear-btn" onclick="rezoCruzadoSortear()" style="width:100%;padding:10px;background:var(--purple);border:none;border-radius:var(--radius-md);color:#EEEDFE;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px"><i class="ti ti-arrows-shuffle" style="font-size:16px"></i> Sortear para esta semana</button>
+        <div id="rezo-sortear-msg" style="display:none;font-size:11px;color:var(--text-secondary);text-align:center;margin-top:6px"></div>
+      </div>
+    </div>
+    <!-- /REZO CRUZADO -->
+
     <div id="bday-container"></div>
     <div class="card">
       <div class="card-title" style="justify-content:space-between">
@@ -903,6 +918,225 @@ async function guardarBonos(){
     console.error('Error bonos:',e);
     alert('Error al guardar');
   }
+}
+
+// ---- REZO CRUZADO ----
+var _rezoCruzadoData=null; // {semana:'2026-W41', sorteo:[{rezador:'Mirande',porFamilia:'Paz'}, ...], historial:[...]}
+
+function getLunesISO(d){
+  // Devuelve la fecha del lunes de la semana de d, en formato YYYY-MM-DD
+  var dd=new Date(d||Date.now());
+  var day=dd.getDay()||7; // domingo=7
+  dd.setHours(0,0,0,0);
+  dd.setDate(dd.getDate()-day+1);
+  return dd.toISOString().slice(0,10);
+}
+
+function getSemanaISO(d){
+  // Devuelve "YYYY-WNN"
+  var dd=new Date(d||Date.now());
+  var jan4=new Date(dd.getFullYear(),0,4);
+  var startOfWeek1=new Date(jan4);
+  startOfWeek1.setDate(jan4.getDate()-(jan4.getDay()||7)+1);
+  var diff=dd-startOfWeek1;
+  var week=Math.floor(diff/(7*86400000))+1;
+  return dd.getFullYear()+'-W'+(week<10?'0':'')+week;
+}
+
+function esLunesHoy(){
+  return new Date().getDay()===1;
+}
+
+function todasLasFamilias(){
+  // Devuelve todas las familias + Méndez (educadores) como array {id, apellido}
+  var fams=state.familias.map(function(f){return {id:String(f.id),apellido:f.apellido};});
+  // Incluir Méndez si no está ya en familias
+  if(!fams.find(function(f){return f.apellido==='Méndez';})){
+    fams=fams.concat([{id:'mendez',apellido:'Méndez'}]);
+  }
+  return fams;
+}
+
+async function cargarRezoCruzado(){
+  try{
+    var {data}=await sb.from('config').select('valor').eq('clave','rezo_cruzado').single();
+    _rezoCruzadoData=data?JSON.parse(data.valor):null;
+  }catch(e){_rezoCruzadoData=null;}
+  renderRezoCruzado();
+}
+
+function renderRezoCruzado(){
+  var el=document.getElementById('rezo-body');
+  var labelEl=document.getElementById('rezo-semana-label');
+  var adminZone=document.getElementById('rezo-admin-zone');
+  var sortearBtn=document.getElementById('rezo-sortear-btn');
+  var sortearMsg=document.getElementById('rezo-sortear-msg');
+  if(!el)return;
+
+  var semanaCurrent=getSemanaISO();
+  var lunesh=getLunesISO();
+  if(adminZone)adminZone.style.display='block';
+
+  // Estado del botón: solo se puede sortear el lunes y si no se sorteó ya esta semana
+  if(sortearBtn){
+    var yaeSorteado=_rezoCruzadoData&&_rezoCruzadoData.semana===semanaCurrent;
+    var esLunes=esLunesHoy();
+    sortearBtn.disabled=yaeSorteado||!esLunes;
+    sortearBtn.style.opacity=(yaeSorteado||!esLunes)?'0.45':'1';
+    sortearBtn.style.cursor=(yaeSorteado||!esLunes)?'not-allowed':'pointer';
+    if(sortearMsg){
+      if(yaeSorteado){
+        sortearMsg.textContent='Ya se sorteó esta semana.';
+        sortearMsg.style.display='block';
+      } else if(!esLunes){
+        sortearMsg.textContent='El sorteo solo se puede hacer los lunes.';
+        sortearMsg.style.display='block';
+      } else {
+        sortearMsg.style.display='none';
+      }
+    }
+  }
+
+  if(!_rezoCruzadoData||!_rezoCruzadoData.sorteo||!_rezoCruzadoData.sorteo.length){
+    if(labelEl)labelEl.textContent='';
+    el.innerHTML='<div style="font-size:12px;color:var(--text-secondary);text-align:center;padding:8px 0">Todavía no se realizó el sorteo de esta semana</div>';
+    return;
+  }
+
+  var semana=_rezoCruzadoData.semana||'';
+  var esSemanaActual=semana===semanaCurrent;
+  if(labelEl)labelEl.textContent=esSemanaActual?'Esta semana':'Semana '+semana;
+
+  var html='';
+  if(!esSemanaActual){
+    html+='<div style="font-size:11px;color:var(--amber);background:var(--amber-light);border-radius:6px;padding:5px 10px;margin-bottom:8px;text-align:center">Pendiente el sorteo de esta semana</div>';
+  }
+  _rezoCruzadoData.sorteo.forEach(function(item){
+    html+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--border)">'
+      +'<span style="font-size:13px;font-weight:600;color:var(--text-primary);min-width:110px">'+escHtml(item.rezador)+'</span>'
+      +'<i class="ti ti-arrow-right" style="font-size:12px;color:var(--text-secondary);flex-shrink:0"></i>'
+      +'<span style="font-size:13px;color:var(--text-secondary)">reza por <strong style="color:var(--text-primary)">'+escHtml(item.porFamilia)+'</strong></span>'
+      +'</div>';
+  });
+  // quitar último borde
+  html=html.replace(/border-bottom[^"]+"\s*style="([^"]*)"([^>]*)>(\s*<\/div>\s*)$/,'style="$1"$2>$3');
+  el.innerHTML='<div style="margin-bottom:2px">'+html+'</div>';
+}
+
+async function rezoCruzadoSortear(){
+  var btn=document.getElementById('rezo-sortear-btn');
+  if(btn)btn.disabled=true;
+  var semanaCurrent=getSemanaISO();
+
+  // Verificar que no se sorteó ya esta semana
+  if(_rezoCruzadoData&&_rezoCruzadoData.semana===semanaCurrent){
+    alert('Ya se sorteó esta semana.');return;
+  }
+  if(!esLunesHoy()){
+    alert('El sorteo solo se puede hacer los lunes.');return;
+  }
+
+  var familias=todasLasFamilias();
+  var n=familias.length;
+  if(n<2){alert('No hay suficientes familias.');return;}
+
+  // Cargar historial de rotaciones para cumplir regla: no repetir hasta completar vuelta
+  var historial=(_rezoCruzadoData&&_rezoCruzadoData.historial)||[];
+  // historial = array de sorteos anteriores; cada sorteo tiene {semana, sorteo:[{rezador, porFamilia}]}
+  // Para cada familia que reza, ¿a qué familias ya le rezó en esta "vuelta"?
+  var usadosPorRezador={};
+  familias.forEach(function(f){usadosPorRezador[f.id]=[];});
+  // recorrer historial de más nuevo a más viejo para armar la vuelta actual
+  // La "vuelta" se reinicia cuando un rezador ya rezó por todos
+  for(var hi=historial.length-1;hi>=0;hi--){
+    var h=historial[hi];
+    if(!h.sorteo)continue;
+    h.sorteo.forEach(function(item){
+      var f=familias.find(function(x){return x.apellido===item.rezador;});
+      if(!f)return;
+      // si ya rezó por todos (n-1), resetear
+      if(usadosPorRezador[f.id].length>=n-1){
+        usadosPorRezador[f.id]=[];
+      }
+      if(usadosPorRezador[f.id].indexOf(item.porFamilia)===-1){
+        usadosPorRezador[f.id].push(item.porFamilia);
+      }
+    });
+  }
+
+  // Armar sorteo: para cada familia rezadora, elegir al azar entre las que no le tocaron aún
+  // Constraint: el resultado debe ser una permutación (nadie reza por el mismo destinatario)
+  // Usamos un algoritmo de matching: intentar hasta 100 veces con shuffling
+  var sorteo=null;
+  for(var intento=0;intento<200;intento++){
+    var ids=familias.map(function(f){return f.id;});
+    // Shuffle rezadores
+    var rezadores=shuffle(ids.slice());
+    // Para cada rezador armar lista de candidatos válidos:
+    //   - no es él mismo
+    //   - no está en su historial de vuelta actual
+    // Usamos asignación bipartita greedy con backtracking simplificado (100 familias max es manejable)
+    var asignado={}; // id_rezador -> id_porFamilia
+    var ocupado={}; // id_porFamilia -> true
+    var ok=true;
+    for(var ri=0;ri<rezadores.length;ri++){
+      var rid=rezadores[ri];
+      var candidatos=ids.filter(function(pid){
+        return pid!==rid&&!ocupado[pid]&&usadosPorRezador[rid].indexOf(familias.find(function(x){return x.id===pid;}).apellido)===-1;
+      });
+      // si no hay candidatos sin historial, relajar (permitir ya usados pero no sí mismo)
+      if(!candidatos.length){
+        candidatos=ids.filter(function(pid){return pid!==rid&&!ocupado[pid];});
+      }
+      if(!candidatos.length){ok=false;break;}
+      // elegir al azar
+      var elegido=candidatos[Math.floor(Math.random()*candidatos.length)];
+      asignado[rid]=elegido;
+      ocupado[elegido]=true;
+    }
+    if(ok){
+      sorteo=familias.map(function(f){
+        var destId=asignado[f.id];
+        var destFam=familias.find(function(x){return x.id===destId;});
+        return {rezador:f.apellido,porFamilia:destFam?destFam.apellido:'?'};
+      });
+      break;
+    }
+  }
+
+  if(!sorteo){alert('No se pudo generar el sorteo. Intentá de nuevo.');if(btn)btn.disabled=false;return;}
+
+  // Guardar en Supabase
+  var nuevoHistorial=historial.concat([{semana:semanaCurrent,sorteo:sorteo}]);
+  // Mantener últimas 100 semanas
+  if(nuevoHistorial.length>100)nuevoHistorial=nuevoHistorial.slice(-100);
+  var payload={semana:semanaCurrent,sorteo:sorteo,historial:nuevoHistorial};
+
+  try{
+    await sb.from('config').upsert({clave:'rezo_cruzado',valor:JSON.stringify(payload)},{onConflict:'clave'});
+    _rezoCruzadoData=payload;
+    renderRezoCruzado();
+  }catch(e){
+    alert('Error al guardar el sorteo: '+(e.message||e));
+    if(btn)btn.disabled=false;
+  }
+}
+
+function shuffle(arr){
+  for(var i=arr.length-1;i>0;i--){
+    var j=Math.floor(Math.random()*(i+1));
+    var tmp=arr[i];arr[i]=arr[j];arr[j]=tmp;
+  }
+  return arr;
+}
+
+function escHtml(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Mostrar/ocultar zona admin de rezo cruzado según estado infra
+function actualizarRezoAdmin(){
+  renderRezoCruzado();
 }
 
 // ---- CUENTAS (gastos por reunión) ----
@@ -1655,6 +1889,10 @@ function subscribeRealtime(){
         try{state.bonos=JSON.parse(payload.new.valor||'{}');}catch(e){state.bonos={};}
         renderBonos();
       }
+      if(payload.new&&payload.new.clave==='rezo_cruzado'){
+        try{_rezoCruzadoData=JSON.parse(payload.new.valor||'null');}catch(e){_rezoCruzadoData=null;}
+        renderRezoCruzado();
+      }
     })
     .on('postgres_changes',{event:'*',schema:'public',table:'reuniones'},(payload)=>{loadAll();})
     .on('postgres_changes',{event:'*',schema:'public',table:'familias'},(payload)=>{loadAll();})
@@ -1790,6 +2028,7 @@ function renderAll(){
   renderSimbolos();
   renderConquistaInicio();
   renderBonos();
+  cargarRezoCruzado();
 }
 
 function getFamiliaSemana(){
@@ -3010,7 +3249,7 @@ function abrirInfra(){
 
 function checkInfraLogin(){
   const pwd=document.getElementById('infra-pwd').value;
-  if(pwd===INFRA_PWD){sessionStorage.setItem('infra_ok','1');closeModal();setTimeout(mostrarInfra,100);}
+  if(pwd===INFRA_PWD){sessionStorage.setItem('infra_ok','1');closeModal();setTimeout(function(){mostrarInfra();actualizarRezoAdmin();},100);}
   else{document.getElementById('infra-login-error').style.display='block';}
 }
 
